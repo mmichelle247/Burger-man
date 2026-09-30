@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+<title>Burger Man</title>
+
+<style>
+:root {
+    --bg: #2b3a67;
+    --ink: #fff4d6;
+    --acc: #ffb703;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #1b2444;
+    }
+}
+
+:root[data-theme="dark"] {
+    --bg: #1b2444;
+}
+
+html, body {
+    margin: 0;
+    height: 100%;
+}
+
+body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Press Start 2P", "Courier New", monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    touch-action: manipulation;
+    user-select: none;
+}
+
+h1 {
+    font-size: clamp(14px, 4vw, 22px);
+    margin: 0;
+    color: var(--acc);
+}
+
+#hud {
+    font-size: clamp(10px, 3vw, 14px);
+    display: flex;
+    gap: 24px;
+}
+
+canvas {
+    width: min(94vw, 640px);
+    aspect-ratio: 2 / 1;
+    image-rendering: pixelated;
+    border: 4px solid var(--ink);
+    background: #7ec8e3;
+}
+
+p {
+    font-size: 10px;
+    margin: 0;
+    opacity: 0.85;
+    text-align: center;
+    line-height: 1.6;
+}
+
+button {
+    font: inherit;
+    font-size: 12px;
+    padding: 12px 18px;
+    background: var(--acc);
+    border: 4px solid var(--ink);
+    color: #2b1a00;
+    cursor: pointer;
+}
+</style>
+
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+</head>
+
+<body>
+
+<h1>BURGER MAN</h1>
+
+<div id="hud">
+    <span>SCORE <b id="s">0</b></span>
+    <span>LIVES <b id="l">3</b></span>
+    <span>BEST <b id="b">0</b></span>
+</div>
+
+<canvas id="c" width="160" height="80"></canvas>
+
+<p>
+    Move with arrow keys / A D, or tap left and right.<br>
+    Eat burgers. Dodge the rotten ones.
+</p>
+
+<button id="go">START</button>
+
+<script>
+
+const c = document.getElementById("c");
+const x = c.getContext("2d");
+
+const W = 160;
+const H = 80;
+const GY = 68;
+
+let best = 0;
+
+try {
+    best = Number(localStorage.getItem("bm-best")) || 0;
+} catch (e) {}
+
+document.getElementById("b").textContent = best;
+
+const man = {
+    x: 76,
+    w: 12,
+    dir: 1,
+    chew: 0
+};
+
+let items;
+let score;
+let lives;
+let t;
+let run = false;
+let keys = {};
+let spawn;
+let speed;
+let touchDir = 0;
+
+const P = {
+    s: "#f2c9a0",
+    h: "#5a3210",
+    sh: "#d83a3a",
+    p: "#2d4fa8",
+    k: "#111"
+};
+
+function rect(a, b, w, h, col) {
+    x.fillStyle = col;
+    x.fillRect(Math.round(a), Math.round(b), w, h);
+}
+
+function drawMan() {
+    const m = man;
+    const bx = m.x;
+    const by = GY - 20;
+    const open = m.chew > 0 && Math.floor(m.chew / 3) % 2 === 0;
+
+    rect(bx + 2, by, 8, 3, P.h);
+    rect(bx + 2, by + 3, 8, 7, P.s);
+
+    rect(
+        m.dir > 0 ? bx + 7 : bx + 3,
+        by + 5,
+        2,
+        2,
+        P.k
+    );
+
+    if (open) {
+        rect(bx + 3, by + 8, 6, 3, P.k);
+    }
+
+    rect(bx + 1, by + 10, 10, 6, P.sh);
+    rect(bx + 2, by + 16, 3, 4, P.p);
+    rect(bx + 7, by + 16, 3, 4, P.p);
+}
+
+function drawBurger(b) {
+    const bad = b.bad;
+
+    const bun = bad ? "#6b7a3a" : "#e39a3b";
+    const pat = bad ? "#3a2a1a" : "#6b3a1c";
+
+    rect(b.x, b.y, 10, 3, bun);
+    rect(b.x + 1, b.y - 1, 8, 1, bun);
+
+    rect(
+        b.x,
+        b.y + 3,
+        10,
+        1,
+        bad ? "#8a9a30" : "#5cb85c"
+    );
+
+    rect(b.x, b.y + 4, 10, 2, pat);
+
+    rect(
+        b.x,
+        b.y + 6,
+        10,
+        1,
+        bad ? "#a14" : "#ffd23f"
+    );
+
+    rect(b.x, b.y + 7, 10, 2, bun);
+
+    if (bad) {
+        rect(b.x + 2, b.y + 1, 1, 1, "#111");
+        rect(b.x + 6, b.y + 1, 1, 1, "#111");
+    }
+}
+
+function reset() {
+    items = [];
+    score = 0;
+    lives = 3;
+    t = 0;
+    spawn = 0;
+    speed = 0.5;
+
+    man.x = 76;
+    man.chew = 0;
+
+    upd();
+}
+
+function upd() {
+    document.getElementById("s").textContent = score;
+    document.getElementById("l").textContent = lives;
+}
+
+function step() {
+    t++;
+
+    const d =
+        (keys.ArrowLeft || keys.a || touchDir < 0 ? -1 : 0) +
+        (keys.ArrowRight || keys.d || touchDir > 0 ? 1 : 0);
+
+    if (d) {
+        man.x = Math.max(
+            0,
+            Math.min(W - man.w, man.x + d * 1.8)
+        );
+
+        man.dir = d;
+    }
+
+    if (man.chew > 0) {
+        man.chew--;
+    }
+
+    if (--spawn <= 0) {
+        items.push({
+            x: Math.random() * (W - 10),
+            y: -8,
+            bad: Math.random() < Math.min(0.15 + score * 0.004, 0.4)
+        });
+
+        spawn = Math.max(18, 50 - score * 0.6);
+    }
+
+    speed = 0.5 + Math.min(score * 0.02, 1.3);
+
+    for (const b of items) {
+        b.y += speed;
+
+        if (
+            b.y + 9 >= GY - 20 &&
+            b.y <= GY - 6 &&
+            b.x + 10 > man.x &&
+            b.x < man.x + man.w
+        ) {
+            b.hit = true;
+
+            if (b.bad) {
+                lives--;
+                man.chew = 0;
+            } else {
+                score++;
+                man.chew = 18;
+            }
+
+            upd();
+
+        } else if (b.y > GY) {
+            b.hit = true;
+
+            if (!b.bad) {
+                lives--;
+                upd();
+            }
+        }
+    }
+
+    items = items.filter(b => !b.hit);
+
+    if (lives <= 0) {
+        end();
+    }
+}
+
+function draw() {
+    rect(0, 0, W, H, "#7ec8e3");
+
+    rect(120, 10, 20, 5, "#fff");
+    rect(126, 7, 12, 4, "#fff");
+    rect(20, 16, 18, 4, "#fff");
+
+    rect(0, GY, W, H - GY, "#3f8f3f");
+    rect(0, GY, W, 2, "#2e6e2e");
+
+    items.forEach(drawBurger);
+    drawMan();
+
+    if (!run) {
+        rect(30, 26, 100, 26, "rgba(0,0,0,.6)");
+    }
+}
+
+function loop() {
+    if (run) {
+        step();
+    }
+
+    draw();
+    requestAnimationFrame(loop);
+}
+
+function end() {
+    run = false;
+
+    if (score > best) {
+        best = score;
+
+        try {
+            localStorage.setItem("bm-best", best);
+        } catch (e) {}
+
+        document.getElementById("b").textContent = best;
+    }
+
+    const go = document.getElementById("go");
+    go.textContent = "PLAY AGAIN";
+    go.style.display = "";
+}
+
+document.getElementById("go").onclick = () => {
+    reset();
+    run = true;
+    document.getElementById("go").style.display = "none";
+};
+
+addEventListener("keydown", e => {
+    keys[e.key.length === 1 ? e.key.toLowerCase() : e.key] = true;
+
+    if (e.key.startsWith("Arrow")) {
+        e.preventDefault();
+    }
+});
+
+addEventListener("keyup", e => {
+    keys[e.key.length === 1 ? e.key.toLowerCase() : e.key] = false;
+});
+
+function tp(e) {
+    const r = c.getBoundingClientRect();
+
+    touchDir =
+        (e.touches ? e.touches[0].clientX : e.clientX) - r.left
+        < r.width / 2
+        ? -1
+        : 1;
+}
+
+c.addEventListener(
+    "touchstart",
+    e => {
+        e.preventDefault();
+        tp(e);
+    },
+    { passive: false }
+);
+
+c.addEventListener(
+    "touchmove",
+    e => {
+        e.preventDefault();
+        tp(e);
+    },
+    { passive: false }
+);
+
+c.addEventListener("touchend", () => {
+    touchDir = 0;
+});
+
+reset();
+loop();
+
+</script>
+
+</body>
+</html>
